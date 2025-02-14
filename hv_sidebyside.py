@@ -8,10 +8,12 @@
 ## OakVideoStream()
 ########################################################
 
+import hv_sbs_cams
+
 import collections
 import datetime
+import depthai as dai
 import inspect
-import json
 import os
 import sys
 import random
@@ -29,8 +31,6 @@ import logging.handlers
 import logging.config
 from vlogging import VisualRecord
 
-import cv2
-import depthai as dai
 import io
 
 ########################################################
@@ -96,11 +96,13 @@ class camfaultcatcher:
       if not camerasfound:
         self.dostop[0] = True
       for j in range(len(devices)):
-        self.anewcamera[j] = threading.Thread(target=self.runthecamera, args=(devices[j],(j+1),self.faultdetected,self.printlogqueue,self.dostop),name="the cameras", daemon=True).start()
+        self.anewcamera[j] = threading.Thread(target=hv_sbs_cams.runthecamera, args=(devices[j],(j+1),self.faultdetected,self.printlogqueue,self.dostop),name="the cameras", daemon=True).start()
       while not self.dostop[0]:
         if os.path.exists("logly.stop"):
+          self.printlogqueue.append(["Found logly.stop. Will rename and then shutdown threads.",False,1])
           os.rename("logly.stop","logly.go")
           self.dostop[0] = True
+          time.sleep(1)
         time.sleep(.1)
     except Exception as exception:
       exc_type, exc_obj, exc_tb = sys.exc_info()
@@ -123,7 +125,7 @@ class camfaultcatcher:
       logging.basicConfig(
         format='%(asctime)s %(processName)-10s %(name)s %(levelname)-8s %(message)s', level=logging.INFO,
         handlers=[logging.handlers.RotatingFileHandler("sidebyerr.log", mode='a', maxBytes=5242880, backupCount=10)])
-      while not timetostop[0]:
+      while not timetostop[0] or not infoqueue:# To clear out the print queue.
         if infoqueue:
           rtw = infoqueue.popleft()
           if rtw[2] == 1:
@@ -137,119 +139,12 @@ class camfaultcatcher:
           if not rtw[1]:
             print(rtw[0])
         time.sleep(.1)
+      print("Exiting printlogger.")
     except Exception as exception:
       exc_type, exc_obj, exc_tb = sys.exc_info()
       errorstring = str(inspect.stack()[0][3])+" - "+str(exc_type)+" on l#"+str(exc_tb.tb_lineno)+": "+str(exception)
       print(errorstring)
       # infoqueue.append(["<b>Machine stop failed: "+errorstring+"</b>",False,3])    
-
-  ########################################################
-  ### runthecamera()
-  ########################################################
-  def runthecamera(self, camident,camindex,localfaultdetected,infoqueue,timetostop):
-    try:
-      pipeline = None
-      camRgb = None
-      xlinkOut = None
-      xoutRgbD = None #display
-      str_outD = "display"
-
-      codec = "mjpeg"
-
-      rollingvid = collections.deque()
-      stopped = False
-
-      pipeline = dai.Pipeline()
-      camRgb = pipeline.create(dai.node.ColorCamera)
-      xoutRgbD = pipeline.create(dai.node.XLinkOut)
-
-      xoutRgbD.setStreamName(str_outD)
-
-      camRgb.setPreviewSize(320,320)
-      camRgb.setResolution(dai.ColorCameraProperties.SensorResolution.THE_1080_P)
-      camRgb.setIspScale(1,3)
-      camRgb.setPreviewKeepAspectRatio(False)
-      
-      xoutRgbD.input.setBlocking(False)
-      xoutRgbD.input.setQueueSize(1)
-
-      camRgb.video.link(xoutRgbD.input)
-      
-      colorforbad = (0,0,250) # bad detects
-      colorforframe = (150, 250, 100) # debug frames
-      colorforgood = (250,255,250) # good detects
-      colorfortext = (0,85,204) # for text writing.
-      colorforblack = (0,0,0)
-      colorforwhite = (255,255,255)    
-      
-      frametimestamps = collections.deque()
-      rollingfps = 0
-      rollingtimer = 0
-      
-      starttime = time.perf_counter()
-      appstart = time.time()
-      
-      infoqueue.append(["Hopefully OakcamVideoStream is beginning.",False,3])
-      with dai.Device(pipeline,camident) as device:
-        displayer = device.getOutputQueue(name=str_outD, maxSize=1, blocking=False)    
-
-        firsttimethrough = 0
-
-        while not timetostop[0]:
-          theframe = displayer.get().getCvFrame()
-          cv2.rectangle(theframe,(0,0),(200,20),(0,0,0),-1)
-          cv2.putText(theframe,str(datetime.datetime.now()).split(".")[0], (5, 15), cv2.FONT_HERSHEY_SIMPLEX, .5, colorforwhite, thickness=1)
-
-          if firsttimethrough == 0:
-            firsttimethrough += 1
-          elif firsttimethrough == 1:
-            awidth, aheight,achannel = theframe.shape
-            firsttimethrough += 1
-
-          ## Time stuff
-          frametimestamps.append(time.perf_counter())
-          rollingvid.append(theframe)
-          cv2.imshow("Camera_"+str(camindex), theframe)
-          
-          ## Maintain rolling video at 30 seconds.
-          totaltime = (frametimestamps[-1]-frametimestamps[0])
-          if totaltime > 30:
-            rollingfps = int((len(frametimestamps)/totaltime))
-            for i in range(int((totaltime-30)*rollingfps)):
-              rollingvid.popleft()
-              frametimestamps.popleft()
-          cv2.waitKey(1)
-
-          ## Video to capture
-          if localfaultdetected[0]:
-            
-            rollingfps = int((len(frametimestamps)/(frametimestamps[-1]-frametimestamps[0])))
-            infoqueue.append(["Recording at: "+str(rollingfps)+".",False,3])
-            
-            # Define the codec and create VideoWriter object.The output is stored in 'outpy.avi' file.
-            thatfilename = str(datetime.datetime.now()).replace(" ","_").replace(":","").replace("-","").split(".")[0]+"_camra"+str(camindex)+"_"+str(firsttimethrough).zfill(3)+".avi"
-            infoqueue.append(["Writing: "+thatfilename,False,3])
-            outvid = cv2.VideoWriter(thatfilename,cv2.VideoWriter_fourcc(*'MPEG'), rollingfps, (aheight,awidth))
-            firsttimethrough += 1
-
-            infoqueue.append(["rollingvid length is: "+str(len(rollingvid)),False,3])
-            for jpo in rollingvid:
-              outvid.write(jpo)
-            outvid.release()
-            localfaultdetected[2] += 1
-            if localfaultdetected[2] >= localfaultdetected[1]:
-              localfaultdetected[2] = 0
-              localfaultdetected[0] = False
-
-      infoqueue.append(["OakcamVideoStream has ended.",False,3])
-    except Exception as exception:
-      exc_type, exc_obj, exc_tb = sys.exc_info()
-      errorstring = str(inspect.stack()[0][3])+" - "+str(exc_type)+" on l#"+str(exc_tb.tb_lineno)+": "+str(exception)
-      infoqueue.append(["<b>Machine stop failed: "+errorstring+"</b>",False,3])  
-      localfaultdetected[1] -= 1
-      if localfaultdetected[2] >= localfaultdetected[1]:
-        localfaultdetected[2] = 0
-        localfaultdetected[0] = False
 
   ########################################################
   ### runthefakecom()
