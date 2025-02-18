@@ -11,20 +11,19 @@
 import hv_sbs_cams
 
 import collections
+import cv2
 import datetime
 import depthai as dai
 import inspect
+import multiprocessing
+import numpy as np
 import os
+from pycomm3 import LogixDriver
 import sys
 import random
-import time
-
-import traceback
-
-import multiprocessing
 import threading
-
-from pycomm3 import LogixDriver
+import time
+import traceback
 
 import logging
 import logging.handlers
@@ -67,6 +66,7 @@ class camfaultcatcher:
     try:
       maxcamerawait = 30 # seconds until timeout.
       howlonguntilwait = time.perf_counter()
+      camimgrepos = [None]
       camerasfound = False
       try:
         if os.path.exists("logly.stop"):
@@ -87,6 +87,8 @@ class camfaultcatcher:
         devices = dai.Device.getAllAvailableDevices()
         self.faultdetected[1] = len(devices)
         self.anewcamera = [None]*len(devices)
+        camimgrepos = [None]
+        camimgrepos[0] = [None]*len(devices)
         self.printlogqueue.append(["Detected "+str(len(devices))+" cameras.",False,1])
         if len(devices) > 0:
           camerasfound = True
@@ -96,8 +98,60 @@ class camfaultcatcher:
       if not camerasfound:
         self.dostop[0] = True
       for j in range(len(devices)):
-        self.anewcamera[j] = threading.Thread(target=hv_sbs_cams.runthecamera, args=(devices[j],(j+1),self.faultdetected,self.printlogqueue,self.dostop),name="the cameras", daemon=True).start()
+        self.anewcamera[j] = threading.Thread(target=hv_sbs_cams.runthecamera, args=(devices[j],(j+1),camimgrepos[0],self.faultdetected,self.printlogqueue,self.dostop),name="the cameras", daemon=True).start()
+        # time.sleep(5)
+      ## ###############################################################################
+      ## The display grid layout.
+      minmatrix = [(213,120),(160,90)]
+      scalefactor = 3 if (len(devices) < 10) else 4
+      smallier = [None]*(scalefactor*scalefactor)
+      rowed = [None]*scalefactor
+      ttempt = None
+      finalstitch = None
+      ## ###############################################################################
       while not self.dostop[0]:
+        ## ###############################################################################
+        ## Display
+        for v in range(len(devices)):
+          if len(camimgrepos[0][v]):
+            ttempt = camimgrepos[0][v][0]
+            # print("...1")
+          else:
+            ttempt = np.zeros((minmatrix[scalefactor-3][1],minmatrix[scalefactor-3][0],3), np.uint8)
+            # print("...2")
+          # print(ttempt.shape)
+          try:
+            # print("...3")
+            smallier[v] = cv2.resize(ttempt,(minmatrix[scalefactor-3][0],minmatrix[scalefactor-3][1]))
+            # print("...4")
+          except Exception as exception:
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            errorstring = str(inspect.stack()[0][3])+" - "+str(exc_type)+" on l#"+str(exc_tb.tb_lineno)+": "+str(exception)
+            self.printlogqueue.append(["resize attempt "+str(v)+"-"+errorstring,False,3])
+          if len(smallier[v].shape) != 3:
+            # print("***********************")
+            # print(smallier[v].shape)
+            smallier[v] = cv2.merge([smallier[v],smallier[v],smallier[v]])
+            # print(smallier[v].shape)
+            # print("***********************")
+        # Creating the remaining non-existing camera feeds.
+        for jm in range(len(devices), len(smallier)):
+          smallier[jm] = np.zeros((minmatrix[scalefactor-3][1],minmatrix[scalefactor-3][0],3), np.uint8)
+        for out in range(scalefactor):
+          if scalefactor == 3:
+            rowed[out] = np.hstack((smallier[out*scalefactor],smallier[out*scalefactor+1],smallier[out*scalefactor+2]))
+          elif scalefactor == 4:
+            rowed[out] = np.hstack((smallier[out*scalefactor],smallier[out*scalefactor+1],smallier[out*scalefactor+2],smallier[out*scalefactor+3]))
+        if scalefactor == 3:
+          # print(rowed[0].shape)
+          # print(rowed[1].shape)
+          # print(rowed[2].shape)
+          # print("----------------------------------")
+          finalstitch = np.vstack((rowed[0],rowed[1],rowed[2]))
+        elif scalefactor == 4:
+          finalstitch = np.vstack((rowed[0],rowed[1],rowed[2],rowed[3]))
+        cv2.imshow("Camera Feed", finalstitch)
+        ## ###############################################################################
         if os.path.exists("logly.stop"):
           self.printlogqueue.append(["Found logly.stop. Will rename and then shutdown threads.",False,1])
           os.rename("logly.stop","logly.go")
@@ -161,8 +215,8 @@ class camfaultcatcher:
 
       while not timetostop[0]:
         if (time.perf_counter() - starttime) > maxruntime:
-          infoqueue.append(["Maxtime reached. Laters!",False,2])
-          timetostop[0] = True
+          infoqueue.append(["Maxtime reached for text loop. Laters!",False,2])
+          #timetostop[0] = True
           break
         if (time.perf_counter()-fakeevent) > randvidint:
           localfaultdetected[0] = True
