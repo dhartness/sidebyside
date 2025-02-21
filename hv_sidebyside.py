@@ -90,6 +90,7 @@ class camfaultcatcher:
         camimgrepos = [None]
         camimgrepos[0] = [None]*len(devices)
         self.printlogqueue.append(["Detected "+str(len(devices))+" cameras.",False,1])
+        print(camimgrepos)
         if len(devices) > 0:
           camerasfound = True
         else:
@@ -112,28 +113,20 @@ class camfaultcatcher:
       while not self.dostop[0]:
         ## ###############################################################################
         ## Display
+        # print(camimgrepos)
         for v in range(len(devices)):
           if len(camimgrepos[0][v]):
             ttempt = camimgrepos[0][v][0]
-            # print("...1")
           else:
             ttempt = np.zeros((minmatrix[scalefactor-3][1],minmatrix[scalefactor-3][0],3), np.uint8)
-            # print("...2")
-          # print(ttempt.shape)
           try:
-            # print("...3")
             smallier[v] = cv2.resize(ttempt,(minmatrix[scalefactor-3][0],minmatrix[scalefactor-3][1]))
-            # print("...4")
           except Exception as exception:
             exc_type, exc_obj, exc_tb = sys.exc_info()
             errorstring = str(inspect.stack()[0][3])+" - "+str(exc_type)+" on l#"+str(exc_tb.tb_lineno)+": "+str(exception)
             self.printlogqueue.append(["resize attempt "+str(v)+"-"+errorstring,False,3])
           if len(smallier[v].shape) != 3:
-            # print("***********************")
-            # print(smallier[v].shape)
             smallier[v] = cv2.merge([smallier[v],smallier[v],smallier[v]])
-            # print(smallier[v].shape)
-            # print("***********************")
         # Creating the remaining non-existing camera feeds.
         for jm in range(len(devices), len(smallier)):
           smallier[jm] = np.zeros((minmatrix[scalefactor-3][1],minmatrix[scalefactor-3][0],3), np.uint8)
@@ -143,21 +136,22 @@ class camfaultcatcher:
           elif scalefactor == 4:
             rowed[out] = np.hstack((smallier[out*scalefactor],smallier[out*scalefactor+1],smallier[out*scalefactor+2],smallier[out*scalefactor+3]))
         if scalefactor == 3:
-          # print(rowed[0].shape)
-          # print(rowed[1].shape)
-          # print(rowed[2].shape)
-          # print("----------------------------------")
           finalstitch = np.vstack((rowed[0],rowed[1],rowed[2]))
         elif scalefactor == 4:
           finalstitch = np.vstack((rowed[0],rowed[1],rowed[2],rowed[3]))
         cv2.imshow("Camera Feed", finalstitch)
+          ###########***************************************************
+          # if camimgrepos[0][v]:
+            # cv2.imshow("Camera_"+str(v+1),camimgrepos[0][v])
+          ###########***************************************************
+       
         ## ###############################################################################
         if os.path.exists("logly.stop"):
           self.printlogqueue.append(["Found logly.stop. Will rename and then shutdown threads.",False,1])
           os.rename("logly.stop","logly.go")
           self.dostop[0] = True
           time.sleep(1)
-        time.sleep(.1)
+      time.sleep(.1)
     except Exception as exception:
       exc_type, exc_obj, exc_tb = sys.exc_info()
       errorstring = str(inspect.stack()[0][3])+" - "+str(exc_type)+" on l#"+str(exc_tb.tb_lineno)+": "+str(exception)
@@ -275,7 +269,7 @@ class camfaultcatcher:
     except Exception as exception:
       exc_type, exc_obj, exc_tb = sys.exc_info()
       errorstring = str(inspect.stack()[0][3])+" - "+str(exc_type)+" on l#"+str(exc_tb.tb_lineno)+": "+str(exception)
-      infoqueue.append(["PLC Connection: "+errorstring+"</b>",False,3])    
+      infoqueue.append(["PLC Connection: "+errorstring+"</b>",True,3])    
 
   ########################################################
   ### stop()

@@ -16,6 +16,7 @@ import datetime
 import inspect
 import os
 import sys
+import threading
 import time
 
 import traceback
@@ -23,13 +24,13 @@ import traceback
   ########################################################
   ### runthecamera()
   ########################################################
-class runthecamera:
+class runthecamera(threading.Thread):
   def __init__(self, camident,camindex,imgrepos,localfaultdetected,infoqueue,timetostop):
+    threading.Thread.__init__(self)
     self.camident = camident
     self.camindex = camindex
     self.localfaultdetected = localfaultdetected
     self.repos = imgrepos
-    self.repos[self.camindex-1] = collections.deque(maxlen = 5)
     self.infoqueue = infoqueue
     self.timetostop = timetostop
     
@@ -91,7 +92,7 @@ class runthecamera:
             self.repos[self.camindex-1] = collections.deque(maxlen = 5)
           while not self.timetostop[0]:
             theframe = displayer.get().getCvFrame()
-            cv2.rectangle(theframe,(0,0),(210,20),(0,0,0),-1)
+            cv2.rectangle(theframe,(0,0),(215,20),(0,0,0),-1)
             cv2.putText(theframe,"C"+str(self.camindex)+" "+str(datetime.datetime.now()).split(".")[0], (5, 15), cv2.FONT_HERSHEY_SIMPLEX, .5, colorforwhite, thickness=1)
 
             if firsttimethrough == 0:
@@ -104,7 +105,7 @@ class runthecamera:
             frametimestamps.append(time.perf_counter())
             rollingvid.append(theframe)
             #self.infoqueue.append(["C"+str(self.camindex)+" trying .imshow.",False,2])
-            #cv2.imshow("Camera_"+str(self.camindex), theframe)
+            # cv2.imshow("Camera_"+str(self.camindex), theframe)
             
             ## Maintain rolling video at 30 seconds.
             totaltime = (frametimestamps[-1]-frametimestamps[0])
@@ -146,11 +147,11 @@ class runthecamera:
         except Exception as exception:
           exc_type, exc_obj, exc_tb = sys.exc_info()
           errorstring = str(inspect.stack()[0][3])+" - "+str(exc_type)+" on l#"+str(exc_tb.tb_lineno)+": "+str(exception)
-          self.infoqueue.append(["Camera"+str(self.camindex)+" stop failed: "+errorstring+"</b>",False,3])  
+          self.infoqueue.append(["Camera"+str(self.camindex)+" closing failed: "+errorstring+"</b>",False,3])  
       except Exception as exception:
         exc_type, exc_obj, exc_tb = sys.exc_info()
         errorstring = str(inspect.stack()[0][3])+" - "+str(exc_type)+" on l#"+str(exc_tb.tb_lineno)+": "+str(exception)
-        self.infoqueue.append(["Camera"+str(self.camindex)+" stop failed: "+errorstring+"</b>",False,3])
+        self.infoqueue.append(["Camera"+str(self.camindex)+" errored: "+errorstring+"./n"+str(self.camident)+"</b>",False,3])
         device.close()
         time.sleep
         self.localfaultdetected[1] -= 1
